@@ -423,21 +423,30 @@ class Kubernetes(AgentCheck):
         node_ip, node_name = self.kubeutil.get_node_info()
         self.log.debug('Processing events on {} [{}]'.format(node_name, node_ip))
 
-        k8s_namespace = instance.get('namespace', 'default')
-        events_endpoint = '{}/namespaces/{}/events'.format(self.kubeutil.kubernetes_api_url, k8s_namespace)
+        k8s_namespaces = instance.get('namespaces', ['default', None])
+        # handle old config value
+        if 'namespace' in instance and instance.get('namespace') not in (None, 'default'):
+            k8s_namespaces.append(instance.get('namespace'))
+
+        events_endpoint = '{}/events'.format(self.kubeutil.kubernetes_api_url)
         self.log.debug('Kubernetes API endpoint to query events: %s' % events_endpoint)
 
         events = self.kubeutil.retrieve_json_auth(events_endpoint, self.kubeutil.get_auth_token())
         event_items = events.get('items') or []
-        last_read = self.kubeutil.last_event_collection_ts[k8s_namespace]
+        last_read = self.kubeutil.last_event_collection_ts
         most_recent_read = 0
 
-        self.log.debug('Found {} events, filtering out using timestamp: {}'.format(len(event_items), last_read))
+        self.log.debug('Found {} events, filtering out using timestamp: {} and namespaces: {}'.format(len(event_items), last_read, k8s_namespaces))
 
         for event in event_items:
             # skip if the event is too old
             event_ts = calendar.timegm(time.strptime(event.get('lastTimestamp'), '%Y-%m-%dT%H:%M:%SZ'))
             if event_ts <= last_read:
+                continue
+
+            # filter events by white listed namespaces (empty namespace belong to the 'default' one)
+            event_namespace = event['involvedObject'].get('namespace', 'default')
+            if event_namespace not in k8s_namespaces:
                 continue
 
             involved_obj = event.get('involvedObject', {})
@@ -467,5 +476,5 @@ class Kubernetes(AgentCheck):
             self.event(dd_event)
 
         if most_recent_read > 0:
-            self.kubeutil.last_event_collection_ts[k8s_namespace] = most_recent_read
+            self.kubeutil.last_event_collection_ts = most_recent_read
             self.log.debug('_last_event_collection_ts is now {}'.format(most_recent_read))
