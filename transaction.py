@@ -80,6 +80,7 @@ class TransactionManager(object):
         self._MAX_PARALLELISM = max_parallelism
         self._MAX_ENDPOINT_ERRORS = max_endpoint_errors
 
+        self._tornado_timeout = None  # Store tornardo timeouts, so we don't add tons of them
         self._flush_without_ioloop = False # useful for tests
 
         self._transactions = []  # List of all non commited transactions
@@ -89,7 +90,6 @@ class TransactionManager(object):
         self._running_flushes = 0
         self._transactions_received = 0
         self._transactions_flushed = 0
-
         self._transactions_rejected = 0
 
         # Global counter to assign a number to each transaction: we may have an issue
@@ -174,7 +174,7 @@ class TransactionManager(object):
             # We sort LIFO-style, taking into account errors
             self._trs_to_flush = sorted(to_flush, key=lambda tr: (- tr._error_count, tr._id))
             self._flush_time = datetime.utcnow()
-            self.flush_next()
+            self._timeout_flush_next()
         else:
             if should_log:
                 log.info("No transaction to flush during flush #%s" % str(self._flush_count + 1))
@@ -223,9 +223,9 @@ class TransactionManager(object):
             elif self._running_flushes < self._MAX_PARALLELISM:
                 # Wait a little bit more
                 tornado_ioloop = ioloop.IOLoop.current()
-                if tornado_ioloop._running:
-                    tornado_ioloop.add_timeout(time.time() + delay,
-                                               lambda: self.flush_next())
+                if tornado_ioloop._running and self._tornado_timeout is None:
+                    self._tornado_timeout = tornado_ioloop.add_timeout(time.time() + delay,
+                                                                       lambda: self._timeout_flush_next())
                 elif self._flush_without_ioloop:
                     # Tornado is no started (ie, unittests), do it manually: BLOCKING
                     time.sleep(delay)
@@ -235,12 +235,22 @@ class TransactionManager(object):
         # (which corresponds to the last flush calling flush_next)
         elif self._running_flushes == 0:
             self._trs_to_flush = None
+            self._remove_timeout()
             log.debug('Flush %s took %ss (%s transactions)',
                       self._flush_count,
                       (datetime.utcnow() - self._flush_time).total_seconds(),
                       self._finished_flushes)
         else:
             log.debug("Flush in progress, %s flushes running", self._running_flushes)
+
+    def _remove_timeout(self):
+        if self._tornado_timeout is not None:
+            ioloop.IOLoop.current().remove_timeout(self._tornado_timeout)
+            self._tornado_timeout = None
+
+    def _timeout_flush_next(self):
+        self._remove_timeout()
+        return self.flush_next()
 
     def tr_error(self, tr):
         self._running_flushes -= 1
