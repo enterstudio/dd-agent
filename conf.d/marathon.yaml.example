@@ -9,3 +9,16 @@ instances:
   #   if marathon is protected by basic auth
   #   user: "username"
   #   password: "password"
+  #   
+  #   Optionally split applications into their groups and names. When enabled,
+  #   the app_id is separated from it's group using the last back-slash. E.g.
+  #   if the app_id is "/dev/redis" then the metric will now have two tags:
+  #        app_id:redis group:/dev
+  #   Note that if the application does not have a group, the group tag will be
+  #   root or group:/
+  #   
+  #   group_tags: True
+  #
+  #   Optionally track the "tasksHealthy" and "tasksUnHealthy" metrics per app.
+  #
+  #   track_health: True

@@ -6,6 +6,7 @@
 
 # stdlib
 from urlparse import urljoin
+from os import path
 
 # 3rd party
 import requests
@@ -13,10 +14,13 @@ import requests
 # project
 from checks import AgentCheck
 
-
+import logging
+log = logging.getLogger(__name__)
 class Marathon(AgentCheck):
 
     DEFAULT_TIMEOUT = 5
+    DEFAULT_GROUP_TAGS = False
+    DEFAULT_TRACK_HEALTH = False
     SERVICE_CHECK_NAME = 'marathon.can_connect'
 
     APP_METRICS = [
@@ -30,6 +34,7 @@ class Marathon(AgentCheck):
         'tasksRunning',
         'tasksStaged'
     ]
+    HEALTH_METRICS_ADDED = False
 
     def check(self, instance):
         if 'url' not in instance:
@@ -47,13 +52,25 @@ class Marathon(AgentCheck):
         instance_tags = instance.get('tags', [])
         default_timeout = self.init_config.get('default_timeout', self.DEFAULT_TIMEOUT)
         timeout = float(instance.get('timeout', default_timeout))
+        group_tags = instance.get('group_tags', self.DEFAULT_GROUP_TAGS)
+        track_health = instance.get('track_health', self.DEFAULT_TRACK_HEALTH)
+        
+        if track_health and not self.HEALTH_METRICS_ADDED:
+            self.APP_METRICS.append('tasksHealthy')
+            self.APP_METRICS.append('tasksUnhealthy')
+            HEALTH_METRICS_ADDED = True
 
         # Marathon apps
         response = self.get_json(urljoin(url, "v2/apps"), timeout, auth)
         if response is not None:
             self.gauge('marathon.apps', len(response['apps']), tags=instance_tags)
             for app in response['apps']:
-                tags = ['app_id:' + app['id'], 'version:' + app['version']] + instance_tags
+                if group_tags:
+                    group = path.dirname(app['id'])
+                    group_app = path.basename(app['id'])
+                    tags = ['app_id:' + group_app, 'group:' + group, 'version:' + app['version']] + instance_tags
+                else:
+                    tags = ['app_id:' + app['id'], 'version:' + app['version']] + instance_tags
                 for attr in self.APP_METRICS:
                     if attr in app:
                         self.gauge('marathon.' + attr, app[attr], tags=tags)
