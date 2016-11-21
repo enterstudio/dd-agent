@@ -54,11 +54,11 @@ class Marathon(AgentCheck):
         timeout = float(instance.get('timeout', default_timeout))
         group_tags = instance.get('group_tags', self.DEFAULT_GROUP_TAGS)
         track_health = instance.get('track_health', self.DEFAULT_TRACK_HEALTH)
-        
+
         if track_health and not self.HEALTH_METRICS_ADDED:
             self.APP_METRICS.append('tasksHealthy')
             self.APP_METRICS.append('tasksUnhealthy')
-            HEALTH_METRICS_ADDED = True
+            self.HEALTH_METRICS_ADDED = True
 
         # Marathon apps
         response = self.get_json(urljoin(url, "v2/apps"), timeout, auth)
